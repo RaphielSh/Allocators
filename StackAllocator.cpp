@@ -4,146 +4,156 @@
 using namespace std;
 
 size_t CalculatePadding(size_t baseAddress, size_t alignment){
-    size_t multiplier = (baseAddress / alignment) + 1;
-    size_t alignedAddress = multiplier * alignment;
-    size_t padding = alignedAddress - baseAddress;
+    size_t multiplier = (baseAddress / alignment) + 1; //Вычисления множителя. Мы округляем в большую сторону количество раз, на которое alignment может быть помещено в базовый адрес
+    size_t alignedAddress = multiplier * alignment; //Выровненный адрес. Он следующим после базового адреса. Он будет больше или равен ему, а также кратен alignment.
+    size_t padding = alignedAddress - baseAddress; // Разница между базовым адресом и выровленным адресом
     return padding;
 }
 
-size_t CalculatePaddingWithHeader(size_t baseAddress, size_t alignment, size_t headerSize){
-    size_t padding = CalculatePadding(baseAddress, alignment);
-    size_t neededSpace = headerSize;
+size_t CalculatePaddingWithHeader(size_t baseAddress, size_t alignment, size_t headerSize){  // Функция вычисления выравнивания адреса с учетом заголовка
+    size_t padding = CalculatePadding(baseAddress, alignment); // Исходное количество байтов для выравнивания базового адреса, не учитывая заголовок
+    size_t neededSpace = headerSize; // Количество байтов, нужное для заголовка
 
-    if(padding < neededSpace){
-        neededSpace -= padding;
-        if(neededSpace % alignment > 0){
-            padding =+ alignment * (1 + (neededSpace / alignment));
+    if(padding < neededSpace){ //если выравнивание меньше необходимого места, то заголовок не помещается в текущее выравнивание
+        neededSpace -= padding; //мы вычитаем из заголовка текущий padding, чтобы узнать сколько не вмещается
+        if(neededSpace % alignment > 0){ //если neededSpace не кратен alignment, то нужно добавить дополнительный блок
+            padding += alignment * (1 + (neededSpace / alignment)); //neededSpace / alignment - вычисляет количество полных блоков, нужных для умещения
         }
-        else padding += alignment * (neededSpace / alignment);       //Possible crash
+        else padding += alignment * (neededSpace / alignment);// если neededSpace кратен, то блоков хватает и остается только расширить padding
     }
-    //else padding += alignment * (neededSpace / alignment);
     return padding;
 }
-class Exception:
-public exception{
+class Exception:public exception{
     protected:
-    char* str;
+        char* str;//указатель хранящий сообщение об исключении
     public:
-    Exception(const char* s){
-        str = new char[strlen(s) + 1];
-        strcpy_s(str, strlen(s) + 1, s);
-    }
-    Exception(const Exception& e){
-        str = new char[strlen(e.str) + 1];
-        strcpy_s(str, strlen(e.str) + 1, e.str);
-    }
-    ~Exception(){
-        delete[]str;
-    }
-    virtual void print(){
-        cout << "Exception: " << str << endl;
-    }
+        Exception(const char* s){
+            str = new char[strlen(s) + 1];//выделяем память для str, достаточную для хранения строки s
+            strcpy_s(str, strlen(s) + 1, s);//копируем содержимое s в str
+        }
+        Exception(const Exception& e){//конструктор копирования
+            str = new char[strlen(e.str) + 1];
+            strcpy_s(str, strlen(e.str) + 1, e.str);
+        }
+        ~Exception(){
+            delete[]str;//очищаем память выделенную для str
+        }
+        virtual void print(){
+            cout << "Exception: " << str << endl;
+        }
 };
 
 class AllocationException: public Exception{
     private:
-    size_t Arg;
+        size_t Arg;
     public:
-    AllocationException(size_t Arg, const char* s): 
-    Exception(s), Arg(Arg){};
-    AllocationException(size_t Arg, const Exception& e):
-    Exception(e), Arg(Arg){};
-    AllocationException(const AllocationException& e):
-    Exception(e.str), Arg(e.Arg){};
-    virtual void print(){
-        cout << "Allocation Exception: " << str << "\nArg: " << Arg << endl;
-    }
+        AllocationException(size_t Arg, const char* s): 
+        Exception(s), Arg(Arg){};
+        AllocationException(size_t Arg, const Exception& e):
+        Exception(e), Arg(Arg){};
+        AllocationException(const AllocationException& e):
+        Exception(e.str), Arg(e.Arg){};
+        virtual void print(){
+            cout << "Allocation Exception: " << str << "\nArg: " << Arg << endl;
+        }
 };
+
 using OutOfBoundsException = Exception; // No need of new ranges, so we'll use base Allocator class
+
+// Base Allocator class
 
 class Allocator{
     protected:
-    uintptr_t  Base; // Address that allocates for allocator
-    public: Allocator(){
-        Base = 0;
-    }
-    ~Allocator(){
-        Destroy();
-    }
-    void* Allocate(size_t Size){
-        Base = (uintptr_t)malloc(Size);
-        if(!Base) throw AllocationException(Size, "Allocation Exception");
-        return(void*)Base;
-    }
-    void Destroy(){
-        if(Base){
-            free((void*)Base);
+        uintptr_t  Base; // Address that allocates for allocator
+    public: 
+        Allocator(){
             Base = 0;
+        }  
+        ~Allocator(){
+            Destroy();
         }
-    }
+        void* Allocate(size_t Size){
+            Base = (uintptr_t)malloc(Size);
+            if(!Base) throw AllocationException(Size, "Allocation Exception");
+            return(void*)Base;
+        }
+        void Destroy(){
+            if(Base){
+                free((void*)Base);
+                Base = 0;
+            }
+        }
 };
 class LinearAllocator: public Allocator{
     protected:
-    size_t Offset = 0;
-    size_t SizeOfRegion = 0;
-    public: LinearAllocator():
-    Allocator(){
-        Offset = 0; 
-        SizeOfRegion = 0;
-    }
-    ~LinearAllocator(){}
-    void Create(size_t AllocSize){
-        SizeOfRegion = AllocSize;
-        Allocator::Allocate(SizeOfRegion);
-    }
-    void* Allocate(size_t Size, size_t alignment = sizeof(size_t)){
-        if (!Base) return nullptr;
-        size_t Padding = 0;
-        if(alignment != 0 && Offset % alignment != 0) Padding = CalculatePadding(Offset + Base, alignment);
-        if(Offset + Size + Padding > SizeOfRegion){
-            throw OutOfBoundsException("Out of bounds exception");
-            return nullptr;
+        size_t Offset = 0;
+        size_t SizeOfRegion = 0;
+    public: 
+        LinearAllocator():
+            Allocator(){
+                Offset = 0; 
+                SizeOfRegion = 0;
         }
-        Offset += Padding;
-        uintptr_t CurrentBlock = Offset + Base;
-        Offset += Size;
-        return (void*)CurrentBlock;
-    }
-    void Free(){
-        Offset = 0;
-    }
-    void Destroy(){
-        Offset = 0;
-        SizeOfRegion = 0;
-        Allocator::Destroy();
-    }
+        ~LinearAllocator(){}
+        void Create(size_t AllocSize){
+            SizeOfRegion = AllocSize;
+            Allocator::Allocate(SizeOfRegion);
+        }
+        void* Allocate(size_t Size, size_t alignment = sizeof(size_t)){                    // Check if we still in region and if we dont - return OOB exception
+           if (!Base) return nullptr;
+           size_t Padding = 0;
+           if(alignment != 0 && Offset % alignment != 0) Padding = CalculatePadding(Offset + Base, alignment);
+           if(Offset + Size + Padding > SizeOfRegion){
+               throw OutOfBoundsException("Out of bounds exception");
+               return nullptr;
+            }
+            Offset += Padding;
+            uintptr_t CurrentBlock = Offset + Base;  // Save position to Current block
+            Offset += Size;                          // Make an offset with size user asked for
+            return (void*)CurrentBlock;
+        }
+        void Free(){   // Return position to 0
+            Offset = 0;
+        }
+        void Destroy(){  //Change allocator vars to zero and call for Destroy
+            Offset = 0;
+            SizeOfRegion = 0;
+            Allocator::Destroy();
+        }
 };
 
 class StackAllocator: public LinearAllocator{
     public:
-    StackAllocator():LinearAllocator(){}
-    ~StackAllocator(){}
-    void Create(size_t AllocSize){
-        SizeOfRegion = AllocSize;
-        Allocator::Allocate(SizeOfRegion);
-    }
-    void* Allocate(size_t Size, size_t alignment = 8){
-        if(!Base) return nullptr;
-        uintptr_t CurrentBlock = Base + Offset;
-        size_t padding = CalculatePaddingWithHeader(CurrentBlock, alignment, sizeof(size_t));
-        if(Offset + padding + Size > SizeOfRegion){
-            throw OutOfBoundsException("Out of bounds exception");
-            return nullptr;
+        
+        StackAllocator():LinearAllocator(){}
+        ~StackAllocator(){}
+
+        void Create(size_t AllocSize){
+            SizeOfRegion = AllocSize;
+            Allocator::Allocate(SizeOfRegion);
         }
-        Offset += padding;
-        uintptr_t NextBlock = CurrentBlock + padding;
-        *(size_t*)(NextBlock - sizeof(size_t)) = padding;
-        Offset += Size;
-        return (void*)NextBlock;
-    }
-    void Deallocate(void* Ptr){
-        Offset = (uintptr_t)Ptr - *(size_t*)((uintptr_t)Ptr - sizeof(size_t)) - Base;
-    }
+
+        void* Allocate(size_t Size, size_t alignment = 8){ //Same as Linear, but here we allocate some space for var in the begginning of every block. |
+                                                           //Var contains size of allocated block
+            
+            if(!Base) return nullptr;
+            uintptr_t CurrentBlock = Base + Offset;
+            size_t padding = CalculatePaddingWithHeader(CurrentBlock, alignment, sizeof(size_t));
+            if(Offset + padding + Size > SizeOfRegion){
+                throw OutOfBoundsException("Out of bounds exception");
+                return nullptr;
+            }
+            Offset += padding;
+            uintptr_t NextBlock = CurrentBlock + padding;
+            *(size_t*)(NextBlock - sizeof(size_t)) = padding;
+            Offset += Size;
+            return (void*)NextBlock;
+        
+        }
+
+        void Deallocate(void* Ptr){ //We can deallocate specified block couse we have var that contains size of corresponding block
+            Offset = (uintptr_t)Ptr - *(size_t*)((uintptr_t)Ptr - sizeof(size_t)) - Base;
+        }
 };
 
 long long GetEpochTime(){
