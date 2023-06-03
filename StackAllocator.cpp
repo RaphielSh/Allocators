@@ -16,10 +16,10 @@ size_t CalculatePaddingWithHeader(size_t baseAddress, size_t alignment, size_t h
 
     if(padding < neededSpace){ //если выравнивание меньше необходимого места, то заголовок не помещается в текущее выравнивание
         neededSpace -= padding; //мы вычитаем из заголовка текущий padding, чтобы узнать сколько не вмещается
-        if(neededSpace % alignment > 0){ //если neededSpace не кратен alignment, то нужно добавить дополнительный блок
+        if(neededSpace % alignment > 0){  //если neededSpace не кратен alignment, то нужно добавить дополнительный блок
             padding += alignment * (1 + (neededSpace / alignment)); //neededSpace / alignment - вычисляет количество полных блоков, нужных для умещения
         }
-        else padding += alignment * (neededSpace / alignment);// если neededSpace кратен, то блоков хватает и остается только расширить padding
+        else padding += alignment * (neededSpace / alignment); // если neededSpace кратен, то блоков хватает и остается только расширить padding
     }
     return padding;
 }
@@ -48,11 +48,11 @@ class AllocationException: public Exception{
         size_t Arg;
     public:
         AllocationException(size_t Arg, const char* s): 
-        Exception(s), Arg(Arg){};
+            Exception(s), Arg(Arg){};
         AllocationException(size_t Arg, const Exception& e):
-        Exception(e), Arg(Arg){};
+            Exception(e), Arg(Arg){};
         AllocationException(const AllocationException& e):
-        Exception(e.str), Arg(e.Arg){};
+            Exception(e.str), Arg(e.Arg){};
         virtual void print(){
             cout << "Allocation Exception: " << str << "\nArg: " << Arg << endl;
         }
@@ -95,6 +95,7 @@ class LinearAllocator: public Allocator{
                 SizeOfRegion = 0;
         }
         ~LinearAllocator(){}
+
         void Create(size_t AllocSize){
             SizeOfRegion = AllocSize;
             Allocator::Allocate(SizeOfRegion);
@@ -161,9 +162,14 @@ long long GetEpochTime(){
 }
 
 int main(){
+
+
+    cout << "=============Linear Allocator test===============" << endl;
+
+
     LinearAllocator Linear;
     try{
-        Linear.Create(sizeof(int) * 100);
+        Linear.Create(sizeof(int) * 200);
     }
     catch(AllocationException e){
         e.print();
@@ -178,18 +184,23 @@ int main(){
         }
         if(!A) break;
         *A = i;
-        cout << "Allocated address: 0x" << hex << A << "value stored in address: " << dec << *A << endl;
+        cout << "Allocated address: " << hex << A << " value stored in address: " << dec << *A << endl;
     }
     Linear.Destroy();
+
+
+    cout << "=============Stack Allocator test===============" << endl;
+
+
     StackAllocator Stack;
     try{
-        Stack.Create(sizeof(int) * 100);
+        Stack.Create(sizeof(int) * 105);
     }
     catch(AllocationException e){
         e.print();
     }
     for (int i = 0; i < 50; i++){
-        int* A = 0;
+        int *A = 0;
         try{
             A = (int*)Stack.Allocate(sizeof(int));
         }
@@ -199,10 +210,15 @@ int main(){
         if (!A) break;
         *A = i;
         if (i >= 25) Stack.Deallocate((void*)A);
-        cout << "Allocated address: 0x" << hex << A << "value stored in address: " << dec << *A << endl;
+        cout << "Allocated address: " << hex << A << " value stored in: " << dec << *A << endl;
     }
     Stack.Destroy();
-    
+
+
+
+    cout << "=============Time tests===============" << endl;
+
+
 
     LinearAllocator LinearTest;
     long long StartTime = GetEpochTime();
@@ -225,6 +241,7 @@ int main(){
     long long EndTime = GetEpochTime();
     cout << "Linear Allocator, 100000 operations done in: " << EndTime - StartTime << " ms" << endl;
 
+
     StackAllocator StackTest;
     StartTime = GetEpochTime();
     try{
@@ -234,6 +251,7 @@ int main(){
         e.print();
     }
     for(int i = 0; i < 100000; i++){
+        //int *A = 0;
         try{
             StackTest.Allocate(sizeof(int));
         }
@@ -241,11 +259,21 @@ int main(){
             e.print();
             break;
         }
+        //if(!A) break;
+        //*A = i;
+        //cout << "Allocated address: 0x" << hex << A << "value stored in address: " << dec << *A << endl;
     }
+
     StackTest.Free();
     EndTime = GetEpochTime();
     cout << "Stack Allocator, 100000 operations dine in: " << EndTime - StartTime << " ms" << endl;
     
+    
+    
+    
+    cout << "=============Exception Test===============" << endl;
+
+
     LinearAllocator LinearTestException;
     try{
         LinearTestException.Create(numeric_limits <uintptr_t>::max());
@@ -266,6 +294,7 @@ int main(){
     catch(OutOfBoundsException e){
         e.print();
     }
+
     system("pause");
     return 0;
 }
