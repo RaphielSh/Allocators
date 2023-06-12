@@ -123,7 +123,7 @@ class Linear_Allocator: public Allocator{
                return nullptr;
             }
 
-            offset += Padding; // Если padding не 0, значит мы добавляли дополнительное место
+            offset += Padding; 
             uintptr_t CurrentBlock = offset + Base;
             offset += Size; 
 
